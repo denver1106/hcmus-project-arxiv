@@ -23,6 +23,9 @@ The group is assigned **20,000 publications**: four non-overlapping ranges of 5,
 | 24127534 | Trương Quang Tạo | `2512.18231`–`2512.23230` |
 
 ## Milestone reports
+
+For the detailed parser/BibTeX flow, execution commands and output review, see the [Milestone 2 tutorial](tutorial.md) (Vietnamese).
+
 The latest verification report is [Milestone 2 validation](reports/milestone2_validation.md).
 Tests and local parsing of the available range were performed for this update; see the report for coverage and exclusions.
 
