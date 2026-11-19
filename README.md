@@ -11,6 +11,55 @@ modules to `src/` without removing the previous ones.
 Works on Windows, macOS, Linux and Google Colab. **Python 3.10+** required.
 No data is stored in this repository (`corpus/`, `work/`, `parsed/` are git-ignored).
 
+## Group 2 — members and assigned publications
+
+The group is assigned **20,000 publications**: four non-overlapping ranges of 5,000 IDs each (inclusive endpoints). Counts refer to publications, not versions.
+
+| Student ID | Full name | Assigned arXiv IDs |
+|---|---|---|
+| 24127192 | Dương Huỳnh Minh Khôi | `2606.00734`–`2606.05733` |
+| 24127262 | Đỗ Thành Vinh | `2605.02338`–`2605.07337` |
+| 24127465 | Tạ Mai Như Ngọc | `2602.09870`–`2602.14869` |
+| 24127534 | Trương Quang Tạo | `2512.18231`–`2512.23230` |
+
+## Milestone reports
+The latest verification report is [Milestone 2 validation](reports/milestone2_validation.md).
+Tests and local parsing of the available range were performed for this update; see the report for coverage and exclusions.
+
+The earlier Jupyter Book remains at <https://denver1106.github.io/hcmus-project-arxiv/>.
+This repository retains its `book/` source and deployment workflow. The latest verified
+parser/BibTeX results are in the validation report above; this source update does not publish
+a new book. Automatic book deployment runs on changes under `book/`, or can be started manually.
+
+## Verify and aggregate existing local sources
+
+The parser supports both `corpus/<paper>/paper.json + vN/metadata.json` and
+`work/raw/<paper>/paper_metadata.json + sources/vN/manifest.json`.
+
+```bash
+pip install -r src/requirements.txt
+python -m unittest discover -s tests -v
+python src/tools/audit_m2.py --corpus-dir /path/to/work/raw --output-dir /path/to/fresh-validation --sample 100 --workers 2
+# Omit --sample for all available publications:
+python src/tools/audit_m2.py --corpus-dir /path/to/work/raw --output-dir /path/to/fresh-full --workers 4 --timeout 30
+python src/tools/export_verified_m2.py --parsed-dir /path/to/fresh-full/parsed --output-dir /path/to/fresh-export
+```
+
+Each validation directory has a source fingerprint, per-paper JSON, coverage CSV,
+publication statistics, unresolved citations, reference-review JSONL and a summary.
+Changed parser revisions require a fresh output directory. Input files are read only.
+Same-version keys identifying contradictory references are quarantined as explicit paper failures.
+
+To aggregate four completed ranges without reparsing:
+
+```bash
+python src/tools/audit_m2.py --aggregate-parsed /range1/parsed /range2/parsed /range3/parsed /range4/parsed --output-dir /path/to/group-summary
+```
+
+Aggregation rejects duplicate publications and mixed parser fingerprints. Absent ranges
+remain missing, rather than being extrapolated. JSON retains field conflicts and key provenance;
+the three Parquet tables retain the statement's schema.
+
 ---
 
 ## Table of contents
@@ -43,14 +92,15 @@ No data is stored in this repository (`corpus/`, `work/`, `parsed/` are git-igno
 |   |-- assemble.py              # M2: element ids, cross-version deduplication, elements/hierarchy rows
 |   |-- hier_parser.py           # M2: LaTeX -> tree, cleanup, math normalization       (parser module)
 |   |-- refs.py                  # M2: \bibitem/.bib -> BibTeX, reference dedup, \cite renaming  (reference module)
-|   |-- dev_stubs.py             # M2: placeholders used ONLY while hier_parser.py / refs.py are missing
+|   |-- dev_stubs.py             # historical test doubles; not used by the real pipeline
 |-- tests/
-|   |-- helpers.py, test_gather.py, test_assemble.py, test_pipeline.py
+|   |-- test_*.py                # hierarchy, references, pipeline, monitoring and Parquet tests
+|-- reports/                    # verification scope, measured results and remaining issues
+|-- book/                       # retained Jupyter Book source
 ```
 
-`pipeline.py` imports `hier_parser` and `refs`; if one of them is not found it prints a warning and
-falls back to `dev_stubs.py`. **Numbers produced with the stubs are for plumbing checks only and must
-not be used in the report.**
+`pipeline.py` imports `hier_parser` and `refs` directly. Missing modules are an installation
+error; the real pipeline does not fall back to `dev_stubs.py`.
 
 ## 2. Setup
 
@@ -301,11 +351,13 @@ parse_document(text: str) -> Node                # root kind "document"; text = 
 # refs.py
 extract_references(gathered, version_dir, bib_scope="cited") -> list[dict]
     # dict keys: citation_key, entry_type, title, authors(list[str]), year(int|None), doi, journal, url
-unify_bibtex({version: [entry, ...]}) -> (unified_entries, {dropped_key: chosen_key})
+unify_bibtex({version: [entry, ...]}, versioned=True) -> (unified_entries, {version: {old_key: chosen_key}})
 rename_cites(text, {dropped_key: chosen_key}) -> str
 ```
-`unify_bibtex` must keep one key per distinct reference, unionize the fields of duplicates, and never
-merge entries that lack the information to be compared (e.g. entries with no title).
+`unify_bibtex` uses DOI first, then compatible title/key evidence. Missing titles may be
+matched by key when the other metadata does not contradict the match. Author lists are unionized;
+scalar disagreements and source keys remain in JSON for review. Pipeline citation renaming is
+version-specific. The legacy flat-map API refuses ambiguous key reuse across versions.
 
 ---
 
@@ -352,17 +404,10 @@ use `--limit`.
 python -m unittest discover -s tests -v      # standard library only; pytest also works
 ```
 
-- `test_gather.py` — comments (`%`, `\%`, `comment` environment), include forms and resolution, missing files,
-  cycles, escaping the folder, unreachable files, `\subfile`, root selection, encodings, `.bib` resolution,
-  citation-key detection.
-- `test_assemble.py` — shared elements across versions (the example of the statement), whitespace/Unicode
-  normalization, repeated sentences and headings, id uniqueness/determinism, statistics, tree validation.
-- `test_pipeline.py` — empty / not-downloaded / no-root versions are recorded, one bad version does not kill
-  a publication, timeout, resume, `\cite` renaming before text deduplication, field unionization,
-  `--bib-scope`.
-
-The pipeline tests replace the parser and reference modules by `dev_stubs.py`, so they keep passing when
-the real modules change. The timeout test is skipped on Windows (no `SIGALRM`).
+Tests exercise real parser/reference modules as well as isolated pipeline plumbing. Regressions
+include accented names, author-year styles, mixed quotes, malformed math, large shared BibTeX
+libraries, complementary author lists, DOI conflicts and citation-key reuse across versions.
+Parquet checks require pandas/pyarrow. The validation report records actual executions.
 
 ## 7. Performance measurement
 
@@ -383,7 +428,6 @@ run only measures the part that was re-executed.
 | Symptom | Fix |
 |---|---|
 | `FileNotFoundError ... 'corpus'` (WinError 3) | The corpus folder does not exist relative to where you run: pass `--corpus-dir <path>` or run the Milestone 1 smoke test first |
-| `WARNING: hier_parser not found` / `refs not found` | The parser/reference modules are not in `src/`; the placeholder stubs are used (also printed once per worker on Windows) |
 | `ModuleNotFoundError: pyarrow` / `psutil` | Activate the venv, then `pip install -r src/requirements.txt` |
 | Ids like `2605.0234` in a table | CSV read without `dtype={"arxiv_id": str}` |
 | `n_references` huge (thousands) | A shared `.bib` library; use `--bib-scope cited` (default) |
@@ -410,4 +454,3 @@ run only measures the part that was re-executed.
 - `.bib` files are only read when declared with `\bibliography{}` / `\addbibresource{}`; `.bbl` files are not
   part of the corpus (Milestone 1 keeps `.tex` and `.bib` only).
 - The measured numbers of a run (timing, RAM, sizes) belong in the report, not in this file.
-  numbers in the report, not in this file.

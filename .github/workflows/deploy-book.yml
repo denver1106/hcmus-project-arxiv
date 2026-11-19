@@ -3,6 +3,8 @@ name: deploy-book
 on:
   push:
     branches: [main]
+    paths:
+      - "book/**"
   workflow_dispatch:
 
 # Build the Jupyter Book and publish its HTML to the `gh-pages` branch,
